@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Please Use My RAM</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #171717;
+            --rule: color-mix(in srgb, var(--ink) 55%, transparent);
+            --gap: 4rem;
+        }
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100dvh;
+            padding: 1rem;
+            display: grid;
+            grid-template-rows: 1fr auto 1fr;
+            justify-items: center;
+            background: #f7f5ef;
+            color: var(--ink);
+            font: 16px system-ui, sans-serif;
+        }
+
+        h1 {
+            align-self: end;
+            margin: 0 0 3rem;
+            font-size: clamp(2rem, 6vw, 3.5rem);
+            font-weight: 500;
+            letter-spacing: -.04em;
+            text-align: center;
+        }
+
+        main {
+            align-self: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: var(--gap);
+            justify-content: center;
+            width: min(34rem, 92vw);
+            min-height: min(38rem, 70vh);
+            padding: 2rem 1.5rem;
+            border: 2px solid var(--ink);
+            box-shadow: 7px 7px 0 var(--ink);
+        }
+
+        .count {
+            display: grid;
+            justify-items: center;
+            gap: var(--gap);
+            text-align: center;
+            font-weight: 700;
+        }
+        .count p { margin: 0; text-box: trim-both cap alphabetic; }
+        .label { font-size: clamp(2rem, 6vw, 3rem); }
+        .amount { font-size: clamp(3rem, 12vw, 6rem); line-height: 1; }
+        .amount small { font-size: .72em; }
+
+        hr {
+            width: min(12rem, 60vw);
+            height: 2px;
+            margin: 0;
+            border: 0;
+            background: linear-gradient(90deg, transparent, var(--rule) 18%, var(--rule) 82%, transparent);
+        }
+
+        pre { margin: 0; opacity: .65; }
+        pre:empty { display: none; }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        button {
+            min-width: 8rem;
+            padding: 1.5rem 2rem;
+            border: 2px solid var(--ink);
+            background: var(--ink);
+            color: #fff;
+            cursor: pointer;
+            font: inherit;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        #minus { background: transparent; color: var(--ink); }
+
+        footer {
+            align-self: end;
+            font-size: .85rem;
+            text-align: center;
+        }
+        footer a { color: inherit; }
+    </style>
+</head>
+<body>
+    <h1>Please Use My RAM</h1>
+
+    <main>
+        <section class="count" aria-label="Memory in use">
+            <p class="label">Currently borrowing</p>
+            <hr>
+            <p class="amount"><span id="gib">0</span><small>GiB</small></p>
+            <hr>
+        </section>
+        <pre id="out"></pre>
+        <div class="controls">
+            <button id="minus" type="button" aria-label="Free one GiB">-1</button>
+            <button id="plus" type="button" aria-label="Allocate one GiB">+1</button>
+        </div>
+    </main>
+
+    <footer>
+        &copy; 2026 Please Use My RAM &middot;
+        <a href="https://github.com/callumio/pleaseusemyram" target="_blank" rel="noreferrer">GitHub</a>
+    </footer>
+
+    <script type="module">
+        const G = 2 ** 30, ws = [], $ = id => document.getElementById(id);
+        let total = 0, pendingBytes = 0, generation = 0, pending = Promise.resolve();
+
+        const renderHeld = () => $('gib').textContent = Math.round((total + pendingBytes) / G);
+
+        const chunk = n => {
+            const w = new Worker('./w.js', { type: 'module' });
+            const record = {
+                worker: w,
+                done: false,
+                promise: new Promise((res, rej) => {
+                    w.onmessage = ({ data: d }) => {
+                        if (d.ok) { record.done = true; res(d.ok); }
+                        else rej(d.err);
+                    };
+                    w.onerror = e => rej(e.message || 'worker failed to load');
+                })
+            };
+            ws.push(record);
+            w.postMessage(n);
+            return record;
+        };
+
+        $('plus').onclick = () => {
+            const gen = generation;
+            pendingBytes += G;
+            renderHeld();
+            pending = pending.then(async () => {
+                const allocated = await chunk(G).promise;
+                if (gen === generation) {
+                    pendingBytes -= allocated;
+                    total += allocated;
+                    renderHeld();
+                }
+            }).catch(e => {
+                if (gen === generation) {
+                    pendingBytes -= G;
+                    renderHeld();
+                    $('out').textContent += `\nfailed: ${e}`;
+                }
+            });
+        };
+
+        $('minus').onclick = () => {
+          if (Math.random() >= 0.5) {
+            const i = ws.findLastIndex(r => r.done);
+            if (i < 0) return;
+            ws.splice(i, 1)[0].worker.terminate();
+            total = Math.max(0, total - G);
+            renderHeld();
+          }
+        };
+    </script>
+</body>
+</html>
